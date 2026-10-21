@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Korak po korak</title>
+  <meta name="description" content="Program podrške porodici – aktivnosti, zapažanja i podrška stručnjaka.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#1f3b73">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Korak po korak">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#/" id="brand">
+        <span class="brand-mark" id="brand-mark"></span>
+        <span class="brand-name">Korak<br>po korak</span>
+      </a>
+      <p class="eyebrow side-label" id="side-label">Vaš porodični prostor</p>
+      <nav class="nav" id="nav"></nav>
+      <div class="side-foot" id="side-foot"></div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menu-btn" aria-label="Meni">☰</button>
+        <span class="top-brand">Korak po korak</span>
+        <div class="crumbs" id="crumbs"></div>
+      </header>
+
+      <main class="content" id="content"><div class="loading"><div class="spinner"></div></div></main>
+
+      <footer class="footer">
+        <span>Razvoj kroz igru i svakodnevicu.</span>
+        <span>© Korak po korak</span>
+      </footer>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Glavni meni"></nav>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" id="modal-card"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
