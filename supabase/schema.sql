@@ -144,6 +144,58 @@ create table if not exists public.platform_settings (
 );
 insert into public.platform_settings (id) values (1) on conflict (id) do nothing;
 
+
+-- Dosije deteta / učenika (za stručnjake u školi, vrtiću ili kabinetu)
+alter table public.families add column if not exists kind       text not null default 'porodica';
+alter table public.families add column if not exists class_name text not null default '';
+alter table public.families add column if not exists school     text not null default '';
+alter table public.families add column if not exists birth_year int;
+alter table public.families add column if not exists dossier    jsonb not null default '{}'::jsonb;
+
+create table if not exists public.dossier_notes (
+  id         uuid primary key default gen_random_uuid(),
+  family_id  uuid not null references public.families(id) on delete cascade,
+  kind       text not null default 'beleška',
+  note_date  date not null default current_date,
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Individualni obrazovni planovi (nacrti koje stručnjak priprema za tim)
+create table if not exists public.iops (
+  id         uuid primary key default gen_random_uuid(),
+  family_id  uuid not null references public.families(id) on delete cascade,
+  data       jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Sopstvene aktivnosti stručnjaka (njegova lična biblioteka)
+create table if not exists public.pro_activities (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null,
+  data       jsonb not null default '{}'::jsonb,
+  photo      text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists dossier_notes_family_idx on public.dossier_notes(family_id, note_date desc);
+create index if not exists iops_family_idx on public.iops(family_id);
+create index if not exists pro_activities_owner_idx on public.pro_activities(owner_id);
+create table if not exists public.visuals (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null,
+  family_id  uuid references public.families(id) on delete cascade,
+  kind       text not null,
+  title      text not null default '',
+  data       jsonb not null default '{}'::jsonb,
+  shared     boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists visuals_owner_idx on public.visuals(owner_id);
+create index if not exists visuals_family_idx on public.visuals(family_id);
+
 create index if not exists programs_family_idx     on public.programs(family_id);
 create index if not exists images_program_idx      on public.images(program_id);
 create index if not exists observations_family_idx on public.observations(family_id, created_at desc);
@@ -159,11 +211,16 @@ alter table public.reviews      enable row level security;
 alter table public.tried        enable row level security;
 alter table public.messages     enable row level security;
 alter table public.professionals     enable row level security;
+alter table public.dossier_notes     enable row level security;
+alter table public.iops              enable row level security;
+alter table public.pro_activities    enable row level security;
+alter table public.visuals           enable row level security;
 alter table public.platform_admins   enable row level security;
 alter table public.platform_settings enable row level security;
 revoke all on public.families, public.programs, public.images, public.observations,
               public.reviews, public.tried, public.messages, public.professionals,
-              public.platform_admins, public.platform_settings from anon, authenticated;
+              public.platform_admins, public.platform_settings, public.dossier_notes, public.iops,
+              public.pro_activities, public.visuals from anon, authenticated;
 
 -- ---------------------------------------------------------------- POMOĆNE
 
@@ -294,6 +351,11 @@ begin
       'id', f.id, 'name', f.name, 'children', f.children, 'consent_at', f.consent_at,
       'code', f.access_code, 'is_test', f.is_test, 'archived', f.archived,
       'notes', case when include_all_programs then f.notes else null end,
+      'kind', f.kind,
+      'class_name', case when include_all_programs then f.class_name else null end,
+      'school', case when include_all_programs then f.school else null end,
+      'birth_year', case when include_all_programs then f.birth_year else null end,
+      'dossier', case when include_all_programs then f.dossier else null end,
       'last_seen_at', f.last_seen_at, 'created_at', f.created_at),
     'program', case when prog.id is null then null else jsonb_build_object(
       'id', prog.id, 'title', prog.title, 'start_date', prog.start_date,
@@ -312,6 +374,12 @@ begin
       from reviews r where family_id = fid), '[]'::jsonb),
     'messages', coalesce((select jsonb_agg(to_jsonb(m) - 'family_id' order by m.created_at)
       from messages m where family_id = fid), '[]'::jsonb),
+    'dossier_notes', case when include_all_programs then coalesce((select jsonb_agg(to_jsonb(n) - 'family_id' order by n.note_date desc, n.created_at desc)
+      from dossier_notes n where n.family_id = fid), '[]'::jsonb) else null end,
+    'visuals', coalesce((select jsonb_agg(jsonb_build_object('id', v.id, 'kind', v.kind, 'title', v.title, 'data', v.data, 'shared', v.shared, 'updated_at', v.updated_at)
+      order by v.updated_at desc) from visuals v where v.family_id = fid and (include_all_programs or v.shared)), '[]'::jsonb),
+    'iops', case when include_all_programs then coalesce((select jsonb_agg(jsonb_build_object('id', i.id, 'data', i.data, 'created_at', i.created_at, 'updated_at', i.updated_at)
+      order by i.created_at desc) from iops i where i.family_id = fid), '[]'::jsonb) else null end,
     'pro', (select jsonb_build_object('full_name', pr.full_name, 'first_name', pr.first_name,
               'name_dative', pr.name_dative, 'name_genitive', pr.name_genitive, 'title', pr.title, 'role', pr.role,
               'bio', pr.bio, 'motto', pr.motto, 'welcome', pr.welcome, 'photo', pr.photo)
@@ -468,6 +536,8 @@ begin
         'id', f.id, 'name', f.name, 'children', f.children, 'code', f.access_code,
         'is_test', f.is_test, 'archived', f.archived, 'created_at', f.created_at,
         'last_seen_at', f.last_seen_at, 'consent_at', f.consent_at,
+        'kind', f.kind, 'class_name', f.class_name, 'school', f.school,
+        'iops', (select count(*) from iops i where i.family_id = f.id),
         'program', (select jsonb_build_object('id', pr.id, 'title', pr.title, 'start_date', pr.start_date,
                       'weeks', coalesce(nullif(pr.content->>'durationWeeks', '')::int, 4),
                       'activities', jsonb_array_length(coalesce(pr.content->'activities', '[]'::jsonb)))
@@ -506,9 +576,11 @@ begin
   perform _require_active();
   if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
   if nullif(p->>'id', '') is null then
-    insert into families (owner_id, name, children, is_test, notes, access_code)
+    insert into families (owner_id, name, children, is_test, notes, access_code, kind, class_name, school, birth_year)
     values (auth.uid(), coalesce(nullif(trim(p->>'name'), ''), 'Nova porodica'), coalesce(p->>'children', ''),
-            coalesce((p->>'is_test')::boolean, false), coalesce(p->>'notes', ''), _new_code())
+            coalesce((p->>'is_test')::boolean, false), coalesce(p->>'notes', ''), _new_code(),
+            case when p->>'kind' = 'ucenik' then 'ucenik' else 'porodica' end,
+            left(coalesce(p->>'class_name', ''), 80), left(coalesce(p->>'school', ''), 160), nullif(p->>'birth_year', '')::int)
     returning * into f;
   else
     f := _owned((p->>'id')::uuid);
@@ -803,6 +875,170 @@ begin
   return (select to_jsonb(ps) - 'id' from platform_settings ps where id = 1);
 end $$;
 
+-- ---------------------------------------------------------------- DOSIJE, IOP, MOJE AKTIVNOSTI
+
+-- p: { id, kind?, children?, class_name?, school?, birth_year?, dossier? }
+create or replace function public.admin_save_dossier(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare f families;
+begin
+  perform _require_active();
+  f := _owned((p->>'id')::uuid);
+  if length(coalesce(p->>'dossier', '')) > 200000 then raise exception 'previse_teksta'; end if;
+  update families set
+    kind       = case when p ? 'kind' then (case when p->>'kind' = 'ucenik' then 'ucenik' else 'porodica' end) else kind end,
+    children   = left(coalesce(p->>'children', children), 120),
+    class_name = left(coalesce(p->>'class_name', class_name), 80),
+    school     = left(coalesce(p->>'school', school), 160),
+    birth_year = case when p ? 'birth_year' then nullif(p->>'birth_year', '')::int else birth_year end,
+    dossier    = coalesce(p->'dossier', dossier)
+  where id = f.id returning * into f;
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_add_note(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare f families; rec dossier_notes;
+begin
+  perform _require_active();
+  f := _owned((p->>'family_id')::uuid);
+  if length(trim(coalesce(p->>'body', ''))) = 0 then raise exception 'prazna_poruka'; end if;
+  insert into dossier_notes (family_id, kind, note_date, body)
+  values (f.id, left(coalesce(nullif(p->>'kind', ''), 'beleška'), 40), coalesce(nullif(p->>'note_date', '')::date, current_date), left(p->>'body', 8000))
+  returning * into rec;
+  return to_jsonb(rec) - 'family_id';
+end $$;
+
+create or replace function public.admin_delete_note(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare rec dossier_notes;
+begin
+  select * into rec from dossier_notes where id = (p->>'id')::uuid;
+  if not found then return jsonb_build_object('ok', true); end if;
+  perform _owned(rec.family_id);
+  delete from dossier_notes where id = rec.id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- p: { family_id, id?, data }
+create or replace function public.admin_save_iop(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare f families; rec iops;
+begin
+  perform _require_active();
+  f := _owned((p->>'family_id')::uuid);
+  if length(coalesce(p->>'data', '')) > 300000 then raise exception 'previse_teksta'; end if;
+  if nullif(p->>'id', '') is null then
+    insert into iops (family_id, data) values (f.id, coalesce(p->'data', '{}'::jsonb)) returning * into rec;
+  else
+    update iops set data = coalesce(p->'data', data), updated_at = now()
+    where id = (p->>'id')::uuid and family_id = f.id returning * into rec;
+    if not found then raise exception 'nije_pronadjeno'; end if;
+  end if;
+  return jsonb_build_object('id', rec.id, 'data', rec.data, 'created_at', rec.created_at, 'updated_at', rec.updated_at);
+end $$;
+
+create or replace function public.admin_delete_iop(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare rec iops;
+begin
+  select * into rec from iops where id = (p->>'id')::uuid;
+  if not found then return jsonb_build_object('ok', true); end if;
+  perform _owned(rec.family_id);
+  delete from iops where id = rec.id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.pro_activities_list(p jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id', a.id, 'data', a.data, 'photo', a.photo, 'updated_at', a.updated_at)
+                   order by a.created_at) from pro_activities a where a.owner_id = auth.uid()), '[]'::jsonb);
+end $$;
+
+-- p: { id?, data, photo? }
+create or replace function public.pro_activity_save(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare rec pro_activities;
+begin
+  perform _require_active();
+  if length(coalesce(p->>'photo', '')) > 1500000 then raise exception 'slika_prevelika'; end if;
+  if length(coalesce(p->>'data', '')) > 60000 then raise exception 'previse_teksta'; end if;
+  if nullif(p->>'id', '') is null then
+    insert into pro_activities (owner_id, data, photo) values (auth.uid(), coalesce(p->'data', '{}'::jsonb), coalesce(p->>'photo', ''))
+    returning * into rec;
+  else
+    update pro_activities set data = coalesce(p->'data', data), photo = coalesce(p->>'photo', photo), updated_at = now()
+    where id = (p->>'id')::uuid and owner_id = auth.uid() returning * into rec;
+    if not found then raise exception 'nije_pronadjeno'; end if;
+  end if;
+  return jsonb_build_object('id', rec.id, 'data', rec.data, 'photo', rec.photo, 'updated_at', rec.updated_at);
+end $$;
+
+create or replace function public.pro_activity_delete(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
+  delete from pro_activities where id = (p->>'id')::uuid and owner_id = auth.uid();
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- ---------------------------------------------------------------- VIZUELNA PODRŠKA
+
+create or replace function public.pro_visuals_list(p jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id', v.id, 'kind', v.kind, 'title', v.title, 'data', v.data, 'shared', v.shared,
+                     'family_id', v.family_id, 'family_name', f.name, 'updated_at', v.updated_at) order by v.updated_at desc)
+                   from visuals v left join families f on f.id = v.family_id
+                   where v.owner_id = auth.uid() and (nullif(p->>'family_id', '') is null or v.family_id = (p->>'family_id')::uuid)), '[]'::jsonb);
+end $$;
+
+create or replace function public.pro_visual_get(p jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare r jsonb;
+begin
+  if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
+  select jsonb_build_object('id', v.id, 'kind', v.kind, 'title', v.title, 'data', v.data, 'shared', v.shared,
+           'family_id', v.family_id, 'family_name', f.name, 'updated_at', v.updated_at) into r
+  from visuals v left join families f on f.id = v.family_id
+  where v.id = (p->>'id')::uuid and v.owner_id = auth.uid();
+  if r is null then raise exception 'nije_pronadjeno'; end if;
+  return r;
+end $$;
+
+-- p: { id?, family_id?, kind, title, data, shared }
+create or replace function public.pro_visual_save(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare rec visuals; fid uuid := nullif(p->>'family_id', '')::uuid;
+begin
+  perform _require_active();
+  if length(coalesce(p->>'data', '')) > 3000000 then raise exception 'previse_teksta'; end if;
+  if fid is not null then perform _owned(fid); end if;
+  if nullif(p->>'id', '') is null then
+    insert into visuals (owner_id, family_id, kind, title, data, shared)
+    values (auth.uid(), fid, left(coalesce(p->>'kind', 'raspored'), 30), left(coalesce(p->>'title', ''), 160),
+            coalesce(p->'data', '{}'::jsonb), coalesce((p->>'shared')::boolean, false) and fid is not null)
+    returning * into rec;
+  else
+    update visuals set title = left(coalesce(p->>'title', title), 160), data = coalesce(p->'data', data),
+      shared = coalesce((p->>'shared')::boolean, shared) and family_id is not null, updated_at = now()
+    where id = (p->>'id')::uuid and owner_id = auth.uid() returning * into rec;
+    if not found then raise exception 'nije_pronadjeno'; end if;
+  end if;
+  return jsonb_build_object('id', rec.id, 'updated_at', rec.updated_at);
+end $$;
+
+create or replace function public.pro_visual_delete(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'niste_prijavljeni' using errcode = '42501'; end if;
+  delete from visuals where id = (p->>'id')::uuid and owner_id = auth.uid();
+  return jsonb_build_object('ok', true);
+end $$;
+
 -- ---------------------------------------------------------------- OBAVEŠTENJA MEJLOM
 -- Vercel funkcija api/notify.js poziva notify_collect sa tajnom (NOTIFY_SECRET)
 -- i šalje Dragani mejl. Tajna se upisuje jednom: insert into app_settings ...
@@ -912,6 +1148,10 @@ grant execute on function public.notify_collect(jsonb), public.notify_undo(jsonb
 grant execute on function public.platform_public(jsonb) to anon, authenticated;
 
 grant execute on function
+  public.admin_save_dossier(jsonb), public.admin_add_note(jsonb), public.admin_delete_note(jsonb),
+  public.admin_save_iop(jsonb), public.admin_delete_iop(jsonb),
+  public.pro_activities_list(jsonb), public.pro_activity_save(jsonb), public.pro_activity_delete(jsonb),
+  public.pro_visuals_list(jsonb), public.pro_visual_get(jsonb), public.pro_visual_save(jsonb), public.pro_visual_delete(jsonb),
   public.pro_me(jsonb), public.pro_save_profile(jsonb),
   public.owner_overview(jsonb), public.owner_extend(jsonb), public.owner_update_pro(jsonb), public.owner_save_settings(jsonb)
 to authenticated;

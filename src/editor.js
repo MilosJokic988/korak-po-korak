@@ -3,7 +3,7 @@
 
 import { admin } from "./api.js";
 import { esc, toast, ICON, fmtDate, todayISO, $, $$, openModal, closeModal } from "./util.js";
-import { LIBRARY, LIB_AREAS, libById, toProgramActivity } from "./library.js";
+import { allActivities, areaInfo, libById, toProgramActivity } from "./library.js";
 import { addListHtml } from "./libview.js";
 import { normalizeContent } from "./program.js";
 import { compressImage } from "./extract.js";
@@ -268,6 +268,16 @@ export function onInput(e) {
   return true;
 }
 
+/* fotografija iz „Mojih aktivnosti“ se kopira u program kao obična slika */
+async function attachPhoto(pa, dataUrl, rerender) {
+  try {
+    const r = await admin.addImage({ program_id: E.program.id, data: dataUrl, mime: dataUrl.slice(5, dataUrl.indexOf(";")) || "image/jpeg" });
+    rememberImage(r.id, dataUrl);
+    pa.imageIds.push(r.id);
+    markDirty(); rerender();
+  } catch (err) { toast("Fotografija aktivnosti nije dodata: " + err.message, "error"); }
+}
+
 export async function onChange(e, rerender) {
   const el = e.target;
   if (el.dataset.edUpload !== undefined && el.files[0]) {
@@ -320,7 +330,7 @@ export function onClick(t, rerender) {
   }
   if (act === "lib-add") {
     const existing = c.activities.map(a => a.title);
-    openModal(addListHtml(LIBRARY.filter(a => existing.includes(a.title)).map(a => a.id)));
+    openModal(addListHtml(allActivities().filter(a => existing.includes(a.title)).map(a => a.id)));
     return "handled";
   }
   if (act === "lib-add-confirm") {
@@ -329,7 +339,7 @@ export function onClick(t, rerender) {
     const allWeeks = Array.from({ length: c.durationWeeks || 4 }, (_, k) => k + 1);
     ids.forEach(id => {
       const a = libById(id);
-      const ar = LIB_AREAS.find(x => x.id === a.area);
+      const ar = areaInfo(a.area);
       let area = c.areas.find(x => x.title === ar.title);
       if (!area) {
         const next = String(Math.max(0, ...c.areas.map(x => Number(x.id) || 0)) + 1);
@@ -337,7 +347,9 @@ export function onClick(t, rerender) {
         c.areas.push(area);
       }
       const n = c.activities.filter(x => x.areaId === area.id).length + 1;
-      c.activities.push(toProgramActivity(a, `${area.id}.${n}`, area.id, allWeeks.slice()));
+      const pa = toProgramActivity(a, `${area.id}.${n}`, area.id, allWeeks.slice());
+      c.activities.push(pa);
+      if (a.photo) attachPhoto(pa, a.photo, rerender);
     });
     closeModal();
     toast(`Dodato: ${ids.length}. Proverite nedelje kod svake aktivnosti.`);

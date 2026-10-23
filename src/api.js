@@ -189,6 +189,18 @@ export const admin = {
   reply: (family_id, body) => rpc("admin_reply", { family_id, body }, true),
   me: () => rpc("pro_me", {}, true),
   saveProfile: p => rpc("pro_save_profile", p, true),
+  saveDossier: p => rpc("admin_save_dossier", p, true),
+  addNote: p => rpc("admin_add_note", p, true),
+  deleteNote: id => rpc("admin_delete_note", { id }, true),
+  saveIop: p => rpc("admin_save_iop", p, true),
+  deleteIop: id => rpc("admin_delete_iop", { id }, true),
+  activities: () => rpc("pro_activities_list", {}, true),
+  saveActivity: p => rpc("pro_activity_save", p, true),
+  deleteActivity: id => rpc("pro_activity_delete", { id }, true),
+  visuals: p => rpc("pro_visuals_list", p || {}, true),
+  visual: id => rpc("pro_visual_get", { id }, true),
+  saveVisual: p => rpc("pro_visual_save", p, true),
+  deleteVisual: id => rpc("pro_visual_delete", { id }, true),
 };
 
 export const owner = {

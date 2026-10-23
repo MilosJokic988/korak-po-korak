@@ -10,6 +10,7 @@ import {
   normalizeContent, currentWeek, weekGroups, groupForWeek, activitiesForGroup, activityByCode, activityByTitle, todaysPick,
 } from "./program.js";
 import { hydrateImages } from "./images.js";
+import * as vis from "./visual.js";
 
 const S = {
   code: null, data: null, offline: false,
@@ -73,21 +74,28 @@ export const unreadCount = () => (S.data ? S.data.messages.filter(m => m.sender 
 
 /* ================================================================ RENDER */
 
+/* stavka „Vizuelna podrška“ se pojavljuje samo kada stručnjak nešto podeli */
+export function navItems() {
+  const vs = S.data && S.data.visuals;
+  return vs && vs.length ? NAV.concat([{ page: "vizuelno", label: "Vizuelna podrška", short: "Slike", icon: ICON.eye }]) : NAV;
+}
+
 export function render(page) {
   if (!S.data) return "";
   if (!S.data.family.consent_at && !S.preview) return consentScreen();
   const banner = S.offline ? `<div class="notice offline">${ICON.info} Nema interneta – prikazujem poslednje sačuvanu verziju. Nove beleške sačuvajte kada se veza vrati.</div>` : "";
   const previewBar = S.preview ? `<div class="preview-bar">${ICON.eye} Pregled – ovako će roditelji videti program <button class="btn-link" data-action="exit-preview">Zatvori pregled</button></div>` : "";
+  if (page === "vizuelno") return previewBar + banner + vis.familyPage(S.data.visuals || []);
   if (!S.data.program && page !== "podrska") return previewBar + banner + noProgram();
   const fn = { plan: pagePlan, aktivnosti: pageAktivnosti, zapazanja: pageZapazanja, podrska: pagePodrska, procena: pageProcena }[page] || pagePlan;
   return previewBar + banner + fn();
 }
 
 export function crumb(page) {
-  return { plan: "Moj program", aktivnosti: "Aktivnosti", zapazanja: "Naša zapažanja", podrska: `Podrška ${PROFILE.imeGenitiv}`, procena: "Procena i vodič" }[page] || "Moj program";
+  return { plan: "Moj program", aktivnosti: "Aktivnosti", zapazanja: "Naša zapažanja", podrska: `Podrška ${PROFILE.imeGenitiv}`, procena: "Procena i vodič", vizuelno: "Vizuelna podrška" }[page] || "Moj program";
 }
 
-export function afterRender(root) { hydrateImages(root, imgFetcher); }
+export function afterRender(root) { hydrateImages(root, imgFetcher); vis.ensureCss(); vis.fitPreviews(root); }
 
 function consentScreen() {
   const f = S.data.family;
@@ -926,6 +934,7 @@ export async function onClick(e, t, rerender) {
       case "close-welcome": store.set(`welcome_${S.code}`, true); rerender(true); break;
       case "timer-toggle": toggleTimer(); break;
       case "print": window.print(); break;
+      case "vis-fam-print": vis.familyPrint(S.data.visuals || [], Number(t.dataset.i)); break;
       case "report": openReportWindow(reportHtml(S.data, content(), S.data.family.name, program().title)); break;
       case "download": downloadNotes(); break;
       case "copy-link": {

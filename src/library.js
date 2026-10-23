@@ -451,7 +451,26 @@ export const LIBRARY = [
   }),
 ];
 
-export const libById = id => LIBRARY.find(a => a.id === id);
+/* ---------------------------------------------------------------- moje aktivnosti
+   Sopstvene aktivnosti stručnjaka (iz baze). Imaju isti oblik kao aktivnosti
+   iz biblioteke, id im počinje sa "my-", a mogu imati i svoju fotografiju. */
+export const MY_AREA = { id: "moje", title: "Moje aktivnosti", intro: "Aktivnosti koje sam sastavio/la za svoje porodice." };
+export let CUSTOM = [];
+
+export function fromDb(row) {
+  const d = row.data || {};
+  return {
+    id: "my-" + row.id, dbId: row.id, mine: true, area: d.area || "moje", title: d.title || "Nova aktivnost",
+    age: d.age || "", time: d.time || "", goal: d.goal || "", materials: d.materials || [], steps: d.steps || [],
+    levels: d.levels || [], tracks: d.tracks || [], develops: d.develops || "", note: d.note || "",
+    art: Number.isInteger(d.art) ? d.art : 0, photo: row.photo || "",
+  };
+}
+export function setCustom(rows) { CUSTOM = rows.map(fromDb); }
+export const allActivities = () => LIBRARY.concat(CUSTOM);
+export const areaInfo = id => LIB_AREAS.find(x => x.id === id) || MY_AREA;
+
+export const libById = id => LIBRARY.find(a => a.id === id) || CUSTOM.find(a => a.id === id);
 
 /* Gotovi šabloni – četvoronedeljni programi od aktivnosti iz biblioteke. */
 export const TEMPLATES = [
@@ -521,7 +540,7 @@ export function buildContent({ title, childNames = "", intro = "", weekPlan }) {
   weekPlan.forEach((w, wi) => w.ids.forEach(id => { const a = libById(id); if (a) used.push({ a, week: wi + 1 }); }));
   const areaOrder = [];
   used.forEach(({ a }) => { if (!areaOrder.includes(a.area)) areaOrder.push(a.area); });
-  const areas = areaOrder.map((aid, i) => { const ar = LIB_AREAS.find(x => x.id === aid); return { id: String(i + 1), title: ar.title, intro: ar.intro }; });
+  const areas = areaOrder.map((aid, i) => { const ar = areaInfo(aid); return { id: String(i + 1), title: ar.title, intro: ar.intro }; });
   const counters = {};
   const byId = new Map();
   used.forEach(({ a, week }) => {
@@ -551,7 +570,7 @@ export function contentFromSelection(ids, childNames = "", weeksCount = 4) {
   const plan = Array.from({ length: n }, () => ({ title: "", ids: [] }));
   ids.forEach((id, i) => plan[Math.floor((i * n) / ids.length)].ids.push(id));
   plan.forEach(w => {
-    const areas = [...new Set(w.ids.map(id => libById(id).area))].map(a => LIB_AREAS.find(x => x.id === a).title);
+    const areas = [...new Set(w.ids.map(id => libById(id).area))].map(a => areaInfo(a).title);
     w.title = areas.join(" i ");
   });
   return buildContent({ title: "Program podrške", childNames, weekPlan: plan });

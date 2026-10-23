@@ -4,7 +4,11 @@ import { admin as api, getSession, signIn, signOut, requestPasswordReset, update
 import { PROFILE, ISKUSTVA, applyProfile } from "./config.js";
 import * as pro from "./pro.js";
 import * as lib from "./libview.js";
-import { TEMPLATES, contentFromTemplate, contentFromSelection } from "./library.js";
+import { TEMPLATES, contentFromTemplate, contentFromSelection, setCustom, CUSTOM, libById } from "./library.js";
+import * as dos from "./dossier.js";
+import * as iop from "./iop.js";
+import * as vis from "./visual.js";
+import { compressImage } from "./extract.js";
 import { owner as ownerApi } from "./api.js";
 import { $, esc, toast, openModal, closeModal, fmtDate, todayISO, longToday, relTime, ICON, copyText, formCode, md } from "./util.js";
 import { normalizeContent, currentWeek } from "./program.js";
@@ -14,7 +18,8 @@ import { importProgram, importPackage, createEmptyProgram } from "./importer.js"
 
 const A = {
   overview: null, showArchived: false, family: null, familyId: null, tab: "pregled",
-  importing: null, aiConfigured: null,
+  importing: null, aiConfigured: null, customLoaded: false, kindFilter: "sve",
+  iop: null, iopDirty: false, iopSaving: false,
 };
 
 export function nav() {
@@ -22,13 +27,14 @@ export function nav() {
   const items = [
     { page: "list", href: "#/admin", label: "Porodice", short: "Porodice", icon: ICON.people },
     { page: "library", href: "#/admin/biblioteka", label: "Biblioteka aktivnosti", short: "Biblioteka", icon: ICON.book },
+    { page: "visual", href: "#/admin/vizuelno", label: "Vizuelna podrška", short: "Vizuelno", icon: ICON.eye },
     { page: "profile", href: "#/admin/profil", label: "Moj profil", short: "Profil", icon: ICON.users },
     { page: "billing", href: "#/admin/clanarina", label: "Članarina", short: "Članarina", icon: ICON.calendar },
   ];
   if (pro.isOwner()) items.push({ page: "owner", href: "#/admin/vlasnik", label: "Vlasnik", short: "Vlasnik", icon: ICON.grid });
   return items;
 }
-export const activeNav = route => (["profile", "billing", "owner", "library"].includes(route.view) ? route.view : "list");
+export const activeNav = route => (route.view === "activity" ? "library" : route.view === "visualEdit" ? "visual" : ["profile", "billing", "owner", "library", "visual"].includes(route.view) ? route.view : "list");
 
 export const loggedIn = () => {
   const s = getSession();
@@ -48,26 +54,42 @@ export function parse(parts) {
   if (parts[1] === "profil") return { view: "profile" };
   if (parts[1] === "clanarina") return { view: "billing" };
   if (parts[1] === "vlasnik") return { view: "owner" };
+  if (parts[1] === "biblioteka" && parts[2] === "nova") return { view: "activity", from: (parts[3] || "").startsWith("od=") ? parts[3].slice(3) : "" };
+  if (parts[1] === "biblioteka" && parts[2] === "moja" && parts[3]) return { view: "activity", aid: parts[3] };
   if (parts[1] === "biblioteka") return { view: "library" };
+  if (parts[1] === "vizuelno" && parts[2] && !parts[2].startsWith("za=")) return { view: "visualEdit", vid: parts[2] };
+  if (parts[1] === "vizuelno") return { view: "visual", za: (parts[2] || "").startsWith("za=") ? parts[2].slice(3) : "" };
   if (parts[1] === "p" && parts[2]) {
     if (parts[3] === "novi") return { view: "import", id: parts[2] };
     if (parts[3] === "biblioteka") return { view: "library", id: parts[2] };
     if (parts[3] === "program" && parts[4]) return { view: "editor", id: parts[2], pid: parts[4] };
+    if (parts[3] === "iop" && parts[4]) return { view: "iop", id: parts[2], iid: parts[4] };
     return { view: "family", id: parts[2] };
   }
   return { view: "list" };
 }
 
 export async function load(route) {
-  const key = route.view + (route.id || "");
-  if (route.view === "library" && A.lastKey !== key) { lib.L.area = "sve"; lib.L.search = ""; if (!route.id) lib.L.pick = []; }
+  const key = route.view + (route.id || "") + (route.aid || route.from || route.iid || route.vid || route.za || "");
+  if (route.view === "activity" && A.lastKey !== key) { lib.L.draftPhoto = null; lib.L.draftArt = null; lib.L.formDraft = null; }
+  if (route.view === "iop" && A.lastKey !== key) { A.iop = null; A.iopDirty = false; }
+  if (route.view === "library" && A.lastKey !== key && !String(A.lastKey || "").startsWith("activity")) { lib.L.area = "sve"; lib.L.search = ""; if (!route.id) lib.L.pick = []; }
   A.lastKey = key;
   if (route.view === "password" || route.view === "register") return;
   if (!loggedIn()) { pro.P.me = null; applyProfile(null); return; }
   await pro.loadMe(["profile", "billing", "owner"].includes(route.view));
   if (route.view !== "profile") { pro.P.draftPhoto = null; applyProfile(pro.P.me.profile); }
   if (route.view === "profile" || route.view === "billing") return;
+  if (!A.customLoaded && ["library", "activity", "import", "editor", "iop", "family"].includes(route.view)) await loadCustom();
+  if (route.view === "activity") return;
   if (route.view === "library" && !route.id) return;
+  if (route.view === "visual" || route.view === "visualEdit") {
+    if (!A.overview || A.lastKeyLoaded !== key) A.overview = await api.overview();
+    A.lastKeyLoaded = key;
+    if (route.view === "visual") { vis.V.za = route.za || ""; if (!vis.V.list) await vis.loadList(); }
+    else if (!vis.V.cur || vis.V.cur.id !== route.vid) { vis.V.cur = await api.visual(route.vid); vis.V.dirty = false; }
+    return;
+  }
   if (route.view === "owner") { await pro.loadOwner(); return; }
   if (route.view === "list") {
     A.overview = await api.overview();
@@ -86,10 +108,33 @@ export async function load(route) {
         editor.setProgram(full, A.family.family);
       }
     }
+    if (route.view === "iop" && !A.iop) {
+      const rec = (A.family.iops || []).find(x => x.id === route.iid);
+      if (!rec) throw new Error("IOP nije pronađen.");
+      A.iop = JSON.parse(JSON.stringify(rec));
+    }
     if (route.view === "import" && A.aiConfigured === null) {
       A.aiConfigured = Boolean((await aiStatus()).configured);
     }
   }
+}
+
+async function loadCustom() {
+  try { setCustom(await api.activities()); A.customLoaded = true; } catch { /* stara baza bez tabele – biblioteka radi i bez svojih aktivnosti */ }
+}
+
+/* posle pravljenja programa iz biblioteke: fotografije „mojih aktivnosti“ ubaci kao slike programa */
+async function attachCustomPhotos(saved, content) {
+  let changed = false;
+  for (const a of content.activities) {
+    const src = CUSTOM.find(c => c.title === a.title && c.photo);
+    if (!src) continue;
+    try {
+      const r = await api.addImage({ program_id: saved.id, data: src.photo, mime: src.photo.slice(5, src.photo.indexOf(";")) || "image/jpeg" });
+      a.imageIds.push(r.id); changed = true;
+    } catch { /* bez slike */ }
+  }
+  if (changed) await api.saveProgram({ id: saved.id, content });
 }
 
 export function crumb(route) {
@@ -98,6 +143,10 @@ export function crumb(route) {
   if (route.view === "billing") return "Članarina";
   if (route.view === "owner") return "Vlasnik platforme";
   if (route.view === "library") return "Biblioteka aktivnosti";
+  if (route.view === "activity") return route.aid ? "Izmena aktivnosti" : "Nova aktivnost";
+  if (route.view === "iop") return "IOP";
+  if (route.view === "visual") return "Vizuelna podrška";
+  if (route.view === "visualEdit") return "Vizuelna podrška";
   if (route.view === "list" || !A.family) return "Porodice";
   if (route.view === "editor") return "Uređivanje programa";
   if (route.view === "import") return "Novi program";
@@ -112,6 +161,14 @@ export function render(route) {
   if (route.view === "billing") return pro.billingView();
   if (route.view === "owner") return pro.ownerView();
   if (route.view === "library") return lib.libraryView(route.id && A.family ? A.family.family : null);
+  if (route.view === "activity") {
+    const a = route.aid ? CUSTOM.find(x => x.dbId === route.aid) : route.from ? libById(route.from) : null;
+    if (route.aid && !a) return `<div class="empty-notes"><h3>Aktivnost nije pronađena.</h3><a class="btn-link" href="#/admin/biblioteka">← Biblioteka</a></div>`;
+    return lib.activityForm(lib.L.formDraft || a);
+  }
+  if (route.view === "iop") return iop.iopView(A.family.family, A.iop, A.iopSaving);
+  if (route.view === "visual") return vis.galleryView(A.overview || []);
+  if (route.view === "visualEdit") return vis.editorView(A.overview || []);
   const banner = pro.statusBanner();
   if (route.view === "list") return banner + listView();
   if (route.view === "import") return banner + importView();
@@ -120,6 +177,8 @@ export function render(route) {
 }
 
 export function afterRender(root, route) {
+  vis.ensureCss();
+  vis.fitPreviews(root);
   if (route.view === "editor") editor.afterRender(root);
   if (route.view === "family" && A.tab === "poruke") { const c = $("#chat"); if (c) c.scrollTop = c.scrollHeight; }
 }
@@ -217,7 +276,8 @@ function morningPanel(all) {
 
 function listView() {
   const all = A.overview || [];
-  const list = all.filter(f => A.showArchived || !f.archived);
+  const hasStudents = all.some(f => f.kind === "ucenik");
+  const list = all.filter(f => (A.showArchived || !f.archived) && (A.kindFilter === "sve" || (A.kindFilter === "ucenik") === (f.kind === "ucenik")));
   const active = all.filter(f => !f.archived);
   const tests = all.filter(f => f.is_test);
   const sum = k => active.reduce((s, f) => s + Number(f[k] || 0), 0);
@@ -225,10 +285,10 @@ function listView() {
     <div class="page-head row-between">
       <div>
         <p class="eyebrow">Dobro došli, ${esc(PROFILE.imeKratko)}</p>
-        <h1>Vaše porodice.</h1>
+        <h1>${hasStudents ? "Porodice i učenici." : "Vaše porodice."}</h1>
         <p class="lead">Ko je u kojoj nedelji, šta su zabeležili i kome treba podrška.</p>
       </div>
-      <button class="btn" data-action="new-family">${ICON.plus} Nova porodica</button>
+      <button class="btn" data-action="new-family">${ICON.plus} Nova porodica / učenik</button>
     </div>
     ${morningPanel(all)}
     <div class="stat-row">
@@ -236,13 +296,14 @@ function listView() {
       <div class="stat"><b>${sum("obs_7d")}</b><span>zapažanja<br>u poslednjih 7 dana</span></div>
       <div class="stat"><b>${sum("new_obs") + sum("unread")}</b><span>novih zapažanja<br>i poruka</span></div>
     </div>
+    ${hasStudents ? `<div class="chips" style="margin:18px 0 0">${[["sve", "Svi"], ["porodica", "Porodice"], ["ucenik", "Učenici"]].map(([k, l]) => `<button class="chip ${A.kindFilter === k ? "active" : ""}" data-action="kind-filter" data-k="${k}">${l}</button>`).join("")}</div>` : ""}
     ${list.length ? `<div class="fam-list">${list.map(f => {
       const weekInfo = f.program ? (() => { const w = currentWeek({ start_date: f.program.start_date, content: { durationWeeks: f.program.weeks } }); return `${w}. od ${f.program.weeks} ned.`; })() : "";
       return `
       <a class="fam-card ${f.archived ? "archived" : ""}" href="#/admin/p/${f.id}">
         <span class="avatar">${esc((f.name.replace(/^porodica\s+/i, "")[0] || "?").toUpperCase())}</span>
         <span class="fam-main">
-          <b>${esc(f.name)} ${f.is_test ? `<em class="badge-test">TEST</em>` : ""}${f.archived ? `<em class="badge-test">arhiva</em>` : ""}</b>
+          <b>${esc(f.name)} ${f.kind === "ucenik" ? `<em class="badge-kind">učenik${f.class_name ? " · " + esc(f.class_name) : ""}</em>` : ""}${f.iops ? `<em class="badge-kind iop">IOP</em>` : ""}${f.is_test ? `<em class="badge-test">TEST</em>` : ""}${f.archived ? `<em class="badge-test">arhiva</em>` : ""}</b>
           <small>${f.program ? `${esc(f.program.title)} · ${weekInfo}` : f.drafts ? "Nacrt programa čeka objavu" : "Bez programa"}</small>
           <small class="muted">Poslednja aktivnost: ${relTime(f.last_obs_at || f.last_seen_at)} · isprobano ${f.tried}${f.program ? "/" + f.program.activities : ""}</small>
         </span>
@@ -262,10 +323,22 @@ function listView() {
 
 function newFamilyModal() {
   openModal(`
-    <h2>Nova porodica</h2>
+    <h2>Nova porodica ili učenik</h2>
     <form id="family-form" class="modal-form">
-      <div class="field"><label>Naziv porodice <small>(vidi ga i porodica)</small></label><input class="input" name="name" placeholder="npr. Porodica Tino" required></div>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="kind" value="porodica" checked data-action="kind-pick"> Porodica (kućni program)</label>
+        <label><input type="radio" name="kind" value="ucenik" data-action="kind-pick"> Učenik iz mog razreda / grupe</label>
+      </div>
+      <div class="field"><label>Naziv <small>(vidi ga i porodica)</small></label><input class="input" name="name" placeholder="npr. Porodica Tino ili Tino (2/3)" required></div>
       <div class="field"><label>Ime deteta / dece <small>(samo ime, bez prezimena)</small></label><input class="input" name="children" placeholder="npr. Tino"></div>
+      <div class="student-only" hidden>
+        <div class="two">
+          <div class="field"><label>Razred / grupa</label><input class="input" name="class_name" placeholder="npr. 2/3"></div>
+          <div class="field"><label>Godina rođenja</label><input class="input" name="birth_year" type="number" min="1990" max="2030"></div>
+        </div>
+        <div class="field"><label>Škola / vrtić</label><input class="input" name="school"></div>
+        <p class="muted small">Učenik dobija dosije i IOP. Roditeljima i dalje možete poslati link sa kućnim programom.</p>
+      </div>
       <label class="check"><input type="checkbox" name="is_test"> Test porodica (za isprobavanje – lako se briše)</label>
       <div class="modal-actions"><button class="btn" type="submit">Napravi porodicu</button></div>
     </form>`);
@@ -283,20 +356,20 @@ const familyLink = f => `${location.origin}${location.pathname}#/p/${formCode(f.
 function familyView() {
   const d = A.family;
   const f = d.family;
-  const tabs = [["pregled", "Pregled"], ["program", "Program"], ["poruke", `Poruke${d.messages.length ? ` (${d.messages.length})` : ""}`], ["podesavanja", "Pristup i podešavanja"]];
+  const tabs = [["pregled", "Pregled"], ["dosije", f.kind === "ucenik" ? "Dosije i IOP" : "Dosije"], ["program", "Program"], ["poruke", `Poruke${d.messages.length ? ` (${d.messages.length})` : ""}`], ["podesavanja", "Pristup i podešavanja"]];
   return `
     <div class="page-head">
       <a class="btn-link" href="#/admin">← Sve porodice</a>
       <div class="row-between" style="margin-top:12px">
         <div>
           <h1>${esc(f.name)} ${f.is_test ? `<em class="badge-test">TEST</em>` : ""}</h1>
-          <p class="lead">${f.children ? esc(f.children) + " · " : ""}${d.program ? esc(d.program.title) + ` · ${currentWeek(d.program)}. od ${d.program.content.durationWeeks} nedelja` : "Bez objavljenog programa"} · poslednja poseta ${relTime(f.last_seen_at)}</p>
+          <p class="lead">${f.kind === "ucenik" && f.class_name ? esc(f.class_name) + (f.school ? ", " + esc(f.school) : "") + " · " : ""}${f.children ? esc(f.children) + " · " : ""}${d.program ? esc(d.program.title) + ` · ${currentWeek(d.program)}. od ${d.program.content.durationWeeks} nedelja` : "Bez objavljenog programa"} · poslednja poseta ${relTime(f.last_seen_at)}</p>
         </div>
         <button class="btn-ghost" data-action="share">${ICON.link} Pošalji link porodici</button>
       </div>
     </div>
     <div class="chips tabs">${tabs.map(([k, l]) => `<button class="chip ${A.tab === k ? "active" : ""}" data-atab="${k}">${esc(l)}</button>`).join("")}</div>
-    ${{ pregled: tabPregled, program: tabProgram, poruke: tabPoruke, podesavanja: tabPodesavanja }[A.tab]()}`;
+    ${{ pregled: tabPregled, dosije: () => dos.tabDosije(d), program: tabProgram, poruke: tabPoruke, podesavanja: tabPodesavanja }[A.tab]()}`;
 }
 
 function tabPregled() {
@@ -514,8 +587,76 @@ export async function onClick(e, t, rerender, ctx) {
     if (t.dataset.atab) { A.tab = t.dataset.atab; return rerender(); }
     if (t.dataset.copy) { copyText(t.dataset.copy); toast("Kopirano."); return; }
     const f = A.family && A.family.family;
+    if (vis.onClick(t, rerender, A.overview || [])) return;
     switch (t.dataset.action) {
       case "lib-area": lib.L.area = t.dataset.a; return rerender();
+      case "lib-tab": lib.L.tab = t.dataset.t; return rerender();
+      case "kind-filter": A.kindFilter = t.dataset.k; return rerender();
+      case "kind-pick": { const box = document.querySelector("#family-form .student-only"); if (box) box.hidden = t.value !== "ucenik"; return; }
+      case "act-art": {
+        keepActivityDraft();
+        lib.L.draftArt = Number(t.dataset.i); lib.L.draftPhoto = "";
+        return rerender();
+      }
+      case "act-photo-remove": keepActivityDraft(); lib.L.draftPhoto = ""; return rerender();
+      case "act-delete": {
+        if (!confirm("Obrisati ovu aktivnost iz „Mojih aktivnosti“? Programi u kojima je već korišćena ostaju nepromenjeni.")) return;
+        await api.deleteActivity(t.dataset.id);
+        await loadCustom();
+        toast("Aktivnost je obrisana.");
+        location.hash = "#/admin/biblioteka";
+        return;
+      }
+      case "note-delete": {
+        if (!confirm("Obrisati ovu belešku?")) return;
+        await api.deleteNote(t.dataset.id);
+        await reloadFamily();
+        return rerender();
+      }
+      case "iop-new": return dos.iopNewModal(f);
+      case "iop-sugg": {
+        const ta = document.getElementById(t.dataset.target);
+        if (ta) { ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + t.dataset.text; A.iopDirty = true; }
+        t.remove();
+        return;
+      }
+      case "iop-team-add": iopEdit(v => v.team.push({ role: "", name: "" })); return rerender();
+      case "iop-team-del": iopEdit(v => v.team.splice(Number(t.dataset.i), 1)); return rerender();
+      case "iop-subj-add": iopEdit(v => v.subjects.push({ subject: "", outcomes: "" })); return rerender();
+      case "iop-subj-del": iopEdit(v => v.subjects.splice(Number(t.dataset.i), 1)); return rerender();
+      case "iop-eval-add": iopEdit(v => v.eval_dates.push("")); return rerender();
+      case "iop-eval-del": iopEdit(v => v.eval_dates.splice(Number(t.dataset.i), 1)); return rerender();
+      case "iop-area-del": {
+        if (!confirm("Ukloniti ovu oblast iz IOP-a?")) return;
+        iopEdit(v => v.areas.splice(Number(t.dataset.i), 1)); return rerender();
+      }
+      case "iop-act-del": iopEdit(v => v.areas[Number(t.dataset.i)].activities.splice(Number(t.dataset.k), 1)); return rerender();
+      case "iop-print": {
+        iopEdit(() => {});
+        return openReportWindow(iop.iopPrintHtml(A.iop.data, PROFILE.ime));
+      }
+      case "iop-delete": {
+        if (!confirm("Obrisati ovaj IOP? Ne može se vratiti.")) return;
+        await api.deleteIop(A.iop.id);
+        A.iop = null; A.iopDirty = false; A.tab = "dosije";
+        await reloadFamily();
+        location.hash = `#/admin/p/${f.id}`;
+        return;
+      }
+      case "iop-program": {
+        iopEdit(() => {});
+        const ids = iop.iopActivityIds(A.iop.data);
+        if (!ids.length) return toast("U IOP-u nema aktivnosti iz biblioteke.");
+        await saveIop();
+        const content = contentFromSelection(ids, f.children || "");
+        content.title = "Kućni program uz IOP";
+        const saved = await api.saveProgram({ family_id: f.id, title: content.title, content, source_name: "IOP" });
+        await attachCustomPhotos(saved, content);
+        A.family = null; A.familyId = null; A.iop = null;
+        toast("Kućni program je napravljen kao nacrt – proverite ga i objavite porodici.");
+        location.hash = `#/admin/p/${f.id}/program/${saved.id}`;
+        return;
+      }
       case "lib-open": return lib.openLibActivity(t.dataset.id, Boolean(A.family && location.hash.includes("/biblioteka") && location.hash.includes("/p/")));
       case "lib-toggle": {
         const id = t.dataset.id, i = lib.L.pick.indexOf(id);
@@ -528,6 +669,7 @@ export async function onClick(e, t, rerender, ctx) {
         if (!lib.L.pick.length) return;
         const content = contentFromSelection(lib.L.pick, f.children || "");
         const saved = await api.saveProgram({ family_id: f.id, title: content.title, content, source_name: "biblioteka" });
+        await attachCustomPhotos(saved, content);
         lib.L.pick = [];
         A.family = null; A.familyId = null;
         toast("Program je napravljen kao nacrt. Proverite ga i objavite.");
@@ -538,6 +680,7 @@ export async function onClick(e, t, rerender, ctx) {
         const tpl = TEMPLATES.find(x => x.id === t.dataset.t);
         const content = contentFromTemplate(tpl, f.children || "");
         const saved = await api.saveProgram({ family_id: f.id, title: content.title, content, source_name: "šablon: " + tpl.title });
+        await attachCustomPhotos(saved, content);
         A.family = null; A.familyId = null;
         toast("Šablon je ubačen kao nacrt. Prilagodite ga i objavite.");
         location.hash = `#/admin/p/${f.id}/program/${saved.id}`;
@@ -644,18 +787,22 @@ export async function onClick(e, t, rerender, ctx) {
 }
 
 export function onInput(e) {
+  if (vis.onInput(e)) return;
   if (e.target.id === "lib-search") {
     lib.L.search = e.target.value;
     const g = document.getElementById("lib-grid");
     if (g) g.innerHTML = lib.cards(location.hash.includes("/p/"));
     return;
   }
+  if (e.target.closest && e.target.closest("#iop-form")) { A.iopDirty = true; return; }
+  if (e.target.closest && e.target.closest("#activity-form")) return;
   const form = e.target.closest && e.target.closest("#profile-form");
   if (form) return pro.onProfileInput(form);
   return editor.onInput(e);
 }
 
 export async function onChange(e, rerender) {
+  if (await vis.onChange(e, rerender)) return;
   if (e.target.id === "import-file" && e.target.files[0]) return runImport(e.target.files[0], rerender);
   if (e.target.id === "photo-input" && e.target.files[0]) {
     try {
@@ -670,6 +817,26 @@ export async function onChange(e, rerender) {
     } catch { toast("Ova slika ne može da se otvori.", "error"); }
     return;
   }
+  if (e.target.id === "act-photo-input" && e.target.files[0]) {
+    try {
+      keepActivityDraft();
+      const c = await compressImage(e.target.files[0], 900, 0.8);
+      lib.L.draftPhoto = c.dataUrl;
+      rerender();
+    } catch { toast("Ova slika ne može da se otvori.", "error"); }
+    return;
+  }
+  if (e.target.id === "iop-area-add" && e.target.value) {
+    const id = e.target.value;
+    iopEdit(v => v.areas.push(iop.newArea(id)));
+    return rerender();
+  }
+  if (e.target.classList && e.target.classList.contains("iop-act-add") && e.target.value) {
+    const a = libById(e.target.value), i = Number(e.target.dataset.i);
+    iopEdit(v => v.areas[i].activities.push({ id: a.id, title: a.title }));
+    return rerender();
+  }
+  if (e.target.closest && (e.target.closest("#iop-form") || e.target.closest("#activity-form") || e.target.closest("#dossier-form") || e.target.closest("#family-form") || e.target.closest("#note-form") || e.target.closest("#iop-new-form"))) { if (e.target.closest("#iop-form")) A.iopDirty = true; return; }
   if (e.target.closest && e.target.closest("#profile-form")) return;
   if (e.target.dataset.action === "toggle-archived") return;
   return editor.onChange(e, rerender);
@@ -686,6 +853,11 @@ export async function onSubmit(e, rerender) {
   const btn = form.querySelector("button[type=submit]");
   if (btn) btn.disabled = true;
   try {
+    if (form.id === "vis-new-form" || form.id === "vis-form") {
+      const r = await vis.onSubmit(form, data, A.overview || []);
+      if (r === "rerender") rerender();
+      return;
+    }
     if (form.id === "login-form") {
       await signIn(data.email.trim(), data.password);
       pro.P.me = null;
@@ -726,12 +898,67 @@ export async function onSubmit(e, rerender) {
       return;
     }
     if (form.id === "family-form") {
-      const r = await api.saveFamily({ name: data.name, children: data.children || "", is_test: Boolean(data.is_test) });
+      const student = data.kind === "ucenik";
+      const r = await api.saveFamily({ name: data.name, children: data.children || "", is_test: Boolean(data.is_test), kind: student ? "ucenik" : "porodica",
+        class_name: data.class_name || "", school: data.school || "", birth_year: data.birth_year || "" });
       closeModal();
-      toast("Porodica je napravljena. Sada ubacite program.");
-      A.tab = "program";
-      location.hash = `#/admin/p/${r.id}/novi`;
+      if (student) {
+        toast("Učenik je dodat. Popunite dosije – od njega se pravi IOP.");
+        A.tab = "dosije";
+        location.hash = `#/admin/p/${r.id}`;
+      } else {
+        toast("Porodica je napravljena. Sada ubacite program.");
+        A.tab = "program";
+        location.hash = `#/admin/p/${r.id}/novi`;
+      }
       return;
+    }
+    if (form.id === "activity-form") {
+      const d = lib.readActivityForm(form);
+      if (!d.title) return toast("Upišite naziv aktivnosti.");
+      if (!d.steps.length) return toast("Upišite bar jedan korak.");
+      const id = form.dataset.id || null;
+      const prev = id ? CUSTOM.find(x => x.dbId === id) : null;
+      d.art = lib.L.draftArt !== null ? lib.L.draftArt : prev ? prev.art : 0;
+      const photo = lib.L.draftPhoto !== null ? lib.L.draftPhoto : prev ? prev.photo : "";
+      await api.saveActivity({ id, data: d, photo });
+      await loadCustom();
+      lib.L.draftPhoto = null; lib.L.draftArt = null; lib.L.tab = "moje";
+      toast(id ? "Aktivnost je sačuvana." : "Aktivnost je dodata u „Moje aktivnosti“.");
+      location.hash = "#/admin/biblioteka";
+      return;
+    }
+    if (form.id === "dossier-form") {
+      await api.saveDossier({ id: A.family.family.id, ...dos.readDossierForm(form) });
+      await reloadFamily();
+      toast("Dosije je sačuvan.");
+      return rerender();
+    }
+    if (form.id === "note-form") {
+      if (!(data.body || "").trim()) return;
+      await api.addNote({ family_id: A.family.family.id, kind: data.kind, note_date: data.note_date, body: data.body.trim() });
+      await reloadFamily();
+      toast("Beleška je dodata.");
+      return rerender();
+    }
+    if (form.id === "iop-new-form") {
+      const areas = [...form.querySelectorAll("input[name=area]:checked")].map(x => x.value);
+      if (!areas.length) return toast("Izaberite bar jednu oblast.");
+      const fam = A.family.family;
+      const data2 = iop.generateIop(fam, data.type || "IOP1", areas, PROFILE.ime);
+      const rec = await api.saveIop({ family_id: fam.id, data: data2 });
+      await api.addNote({ family_id: fam.id, kind: "Beleška", body: `Napravljen nacrt ${data2.type} (${areas.length} ${areas.length === 1 ? "oblast" : "oblasti"}).` }).catch(() => {});
+      closeModal();
+      await reloadFamily();
+      toast("Nacrt IOP-a je spreman. Proverite i dopunite ga.");
+      location.hash = `#/admin/p/${fam.id}/iop/${rec.id}`;
+      return;
+    }
+    if (form.id === "iop-form") {
+      iopEdit(() => {});
+      await saveIop();
+      toast("IOP je sačuvan.");
+      return rerender();
     }
     if (form.id === "family-edit") {
       await api.saveFamily({ id: A.family.family.id, name: data.name, children: data.children || "", notes: data.notes || "", is_test: Boolean(data.is_test), archived: Boolean(data.archived) });
@@ -769,8 +996,42 @@ export async function onSubmit(e, rerender) {
   }
 }
 
+function keepActivityDraft() {
+  /* zadrži otkucano u formi kada se ekran ponovo crta (izbor slike) */
+  const form = document.getElementById("activity-form");
+  if (!form) return;
+  const d = lib.readActivityForm(form);
+  const id = form.dataset.id;
+  const base = id ? CUSTOM.find(x => x.dbId === id) : null;
+  const tmp = { ...(base || {}), ...d, mine: Boolean(base), dbId: id || "", art: lib.L.draftArt !== null ? lib.L.draftArt : base ? base.art : 0, photo: lib.L.draftPhoto !== null ? lib.L.draftPhoto : base ? base.photo : "" };
+  lib.L.formDraft = tmp;
+}
+
+function iopEdit(fn) {
+  const form = document.getElementById("iop-form");
+  iop.syncIopForm(form, A.iop.data);
+  fn(A.iop.data);
+  A.iopDirty = true;
+}
+
+async function saveIop() {
+  const rec = A.iop, fam = A.family;
+  if (!rec || !fam) return;
+  A.iopSaving = true;
+  try {
+    const r = await api.saveIop({ family_id: fam.family.id, id: rec.id, data: rec.data });
+    rec.updated_at = r.updated_at;
+    const list = fam.iops || [];
+    const k = list.findIndex(x => x.id === rec.id);
+    if (k >= 0) list[k] = JSON.parse(JSON.stringify(rec));
+    if (A.iop === rec) A.iopDirty = false;
+  } finally { A.iopSaving = false; }
+}
+
 export function beforeLeave() {
   if (editor.isDirty()) editor.save();
+  if (vis.V.cur && vis.V.dirty) { vis.syncForm(); vis.save().catch(() => {}); }
+  if (A.iop && A.iopDirty) { iopEdit(() => {}); saveIop().catch(() => {}); }
 }
 
 export const familyName = () => (A.family ? A.family.family.name : "");

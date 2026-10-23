@@ -83,6 +83,39 @@ Svaki stručnjak dobija mejl za poruke odmah, a zbirni mejl sa zapažanjima jedn
 
 ---
 
+### Moje aktivnosti
+
+Biblioteka → **Nova aktivnost**: naziv, oblast, cilj, materijal, koraci, lakša/teža varijanta, plus
+ilustracija ili sopstvena fotografija. Kod gotove aktivnosti postoji „Napravi svoju verziju“.
+Moje aktivnosti se biraju svuda kao i gotove (Složi iz biblioteke, Dodaj iz biblioteke, IOP), a
+fotografija se automatski kopira u program.
+
+### Učenici, dosije i IOP
+
+„Nova porodica / učenik“ → *Učenik iz mog razreda / grupe* (razred, škola, godina rođenja).
+Kartica **Dosije** (za sve, ne samo učenike): pedagoški profil, potrebe po 7 oblasti sa opisom
+trenutnog nivoa i hronologija beležaka. Dosije porodica ne vidi.
+
+**Napravi IOP iz dosijea** → izbor IOP1/IOP2/IOP3 i oblasti → nacrt sa merljivim ciljevima,
+prilagođavanjima, aktivnostima iz biblioteke, timom i datumima evaluacije (tromesečno).
+Sve se menja, predlozi se dodaju klikom, a **Štampaj / PDF** daje formalan dokument sa potpisima.
+„Napravi kućni program od aktivnosti“ od IOP aktivnosti pravi nacrt programa za roditelje.
+IOP je radni nacrt – izrađuje ga tim za dodatnu podršku, a usvaja pedagoški kolegijum.
+
+### Vizuelna podrška (deca sa PSA, nivo 1–3)
+
+Meni **Vizuelna podrška** – 15 alata, svaki počinje od gotovog predloška: vizuelni raspored, prvo – posle,
+sekvenca koraka, tabla izbora, komunikaciona tabla (boje po vrsti reči), emocije (kartice, semafor, skala 1–5),
+prelaz i tajmer, socijalna priča (knjižica), vizuelna skripta, pravila, token tabla, kartice za pomoć i pauzu,
+nedeljni senzorni raspored, senzorni pasoš i low arousal plan (za dete ili celu grupu).
+
+- Izbor nivoa podrške sam prilagođava broj i veličinu kartica (nivo 3: manje, veće, bez teksta).
+- Slike: preko 200 simbola sa pretragom ili sopstvena fotografija.
+- Pregled A4 se menja dok kucate; **Štampaj / PDF** daje list spreman za plastificiranje.
+- Materijal vezan za dete vidi se u njegovom Dosijeu; uz kvačicu „Prikaži porodici“ roditelji ga vide u
+  aplikaciji (stavka „Slike“) i mogu sami da ga odštampaju.
+- „Vodič za roditelje i nastavnike“ – jednostrani A4 sa objašnjenjem svih vrsta podrške i preporukama po nivou.
+
 ## 4. Lokalno pokretanje
 ```
 npm install

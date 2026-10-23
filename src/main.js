@@ -15,7 +15,7 @@ import * as adm from "./admin.js";
 import * as editor from "./editor.js";
 
 const content = $("#content");
-const FAMILY_PAGES = ["plan", "aktivnosti", "zapazanja", "podrska", "procena"];
+const FAMILY_PAGES = ["plan", "aktivnosti", "zapazanja", "podrska", "procena", "vizuelno"];
 let route = null;
 let previewReturn = "#/admin";
 
@@ -38,7 +38,7 @@ function parseHash() {
 /* ---------------------------------------------------------------- OKVIR */
 
 function setShell(kind, active) {
-  const nav = kind === "admin" ? adm.nav() : kind === "welcome" ? [] : fam.NAV;
+  const nav = kind === "admin" ? adm.nav() : kind === "welcome" ? [] : fam.navItems();
   const base = kind === "preview" ? "#/pregled/" : "#/";
   const unread = kind === "family" ? fam.unreadCount() : 0;
   const link = n => (kind === "admin" ? n.href : base + n.page);
