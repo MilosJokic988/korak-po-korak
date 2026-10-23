@@ -2,7 +2,9 @@
    stručnjak može da proveri i ispravi pre objave. */
 
 import { admin } from "./api.js";
-import { esc, toast, ICON, fmtDate, todayISO, $, $$ } from "./util.js";
+import { esc, toast, ICON, fmtDate, todayISO, $, $$, openModal, closeModal } from "./util.js";
+import { LIBRARY, LIB_AREAS, libById, toProgramActivity } from "./library.js";
+import { addListHtml } from "./libview.js";
 import { normalizeContent } from "./program.js";
 import { compressImage } from "./extract.js";
 import { hydrateImages, rememberImage } from "./images.js";
@@ -146,7 +148,8 @@ function renderTab() {
             </div>
           </div>
         </details>`).join("")}
-      <button class="btn-ghost" data-ed="add" data-path="activities">${ICON.plus} Dodaj aktivnost</button>`;
+      <div class="row-gap"><button class="btn-ghost" data-ed="add" data-path="activities">${ICON.plus} Dodaj praznu aktivnost</button>
+      <button class="btn" data-ed="lib-add">${ICON.book} Dodaj iz biblioteke</button></div>`;
   }
   if (E.tab === "procena") {
     const as = c.assessment;
@@ -313,6 +316,31 @@ export function onClick(t, rerender) {
     if (j < 0 || j >= list.length) return "handled";
     [list[i], list[j]] = [list[j], list[i]];
     E.open.clear();
+    markDirty(); rerender(); return "handled";
+  }
+  if (act === "lib-add") {
+    const existing = c.activities.map(a => a.title);
+    openModal(addListHtml(LIBRARY.filter(a => existing.includes(a.title)).map(a => a.id)));
+    return "handled";
+  }
+  if (act === "lib-add-confirm") {
+    const ids = [...document.querySelectorAll(".lib-addlist input[name=lib]:checked")].map(x => x.value);
+    if (!ids.length) { toast("Izaberite bar jednu aktivnost."); return "handled"; }
+    const allWeeks = Array.from({ length: c.durationWeeks || 4 }, (_, k) => k + 1);
+    ids.forEach(id => {
+      const a = libById(id);
+      const ar = LIB_AREAS.find(x => x.id === a.area);
+      let area = c.areas.find(x => x.title === ar.title);
+      if (!area) {
+        const next = String(Math.max(0, ...c.areas.map(x => Number(x.id) || 0)) + 1);
+        area = { id: next, title: ar.title, intro: ar.intro };
+        c.areas.push(area);
+      }
+      const n = c.activities.filter(x => x.areaId === area.id).length + 1;
+      c.activities.push(toProgramActivity(a, `${area.id}.${n}`, area.id, allWeeks.slice()));
+    });
+    closeModal();
+    toast(`Dodato: ${ids.length}. Proverite nedelje kod svake aktivnosti.`);
     markDirty(); rerender(); return "handled";
   }
   if (act === "img-remove") {

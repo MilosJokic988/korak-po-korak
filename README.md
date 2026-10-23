@@ -73,7 +73,11 @@ Svaki stručnjak dobija mejl za poruke odmah, a zbirni mejl sa zapažanjima jedn
 
 ## 3. Programi
 
-- **Novi program → Počni od praznog**: stručnjak ga popunjava u uređivaču (aktivnosti, koraci, nedelje, procena, slike).
+- **Biblioteka aktivnosti** (meni „Biblioteka aktivnosti“): 24 gotove igre u 6 oblasti (regulacija i senzorika, pažnja i slušanje, fina motorika, gruba motorika i ravnoteža, komunikacija i govor, samostalnost i rutine). Svaka ima cilj, materijal, korake, lakšu i težu varijantu i šta roditelj prati. Aktivnosti se dodaju/menjaju u `src/library.js`.
+- **Novi program → Brzi početak**: 4 gotova šablona od po 4 nedelje (Telo i smirivanje, Pažnja i slušanje, Rani govor i komunikacija, Ruke i telo).
+- **Novi program → Složi iz biblioteke**: stručnjak izabere aktivnosti, a program se sam rasporedi u 4 nedelje.
+- **U uređivaču → Dodaj iz biblioteke**: dodavanje gotovih igara u bilo koji program.
+- **Novi program → Prazan program**: stručnjak ga popunjava u uređivaču (aktivnosti, koraci, nedelje, procena, slike).
 - **Uvoz gotovog programa (.json)**: paketi napravljeni za ovu aplikaciju (radi i stari format „Kućni defektolog“).
 - **Automatski uvoz Word/PDF dokumenta** (opciono): na Vercel dodajte `ANTHROPIC_API_KEY`. Naplaćuje se po korišćenju (okvirno nekoliko desetina centi po programu) i radi samo stručnjacima sa aktivnom članarinom.
 

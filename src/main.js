@@ -104,7 +104,8 @@ function landingScreen() {
   const price = pub ? pub.price_rsd.toLocaleString("sr-RS") : "1.500";
   const trial = pub ? pub.trial_days : 30;
   const F = [
-    [ICON.upload, "Program za par minuta", "Ubacite gotov program ili ga složite u uređivaču – aktivnosti, nedelje, procena, slike."],
+    [ICON.book, "Biblioteka i gotovi šabloni", "24 gotove igre u 6 oblasti i 4 programa od po četiri nedelje – prvi program napravite za minut."],
+    [ICON.upload, "Ili svoj program", "Složite sopstveni program u uređivaču – aktivnosti, nedelje, procena, slike."],
     [ICON.calendar, "Plan za danas", "Porodica svakog dana dobija tri male stvari: jutro, igru dana i večernje smirivanje."],
     [ICON.note, "Zapažanja stižu vama", "Roditelji jednim klikom beleže kako je prošlo. Vi vidite kalendar, šta prija i šta ne."],
     [ICON.chat, "Poruke na jednom mestu", "Bez izgubljenih Viber poruka – razgovor sa svakom porodicom uz njen program."],

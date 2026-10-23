@@ -4,7 +4,7 @@
 import { SUPABASE_URL, SUPABASE_KEY, AI_ENDPOINT } from "./config.js";
 import { store } from "./util.js";
 
-export const configured = /^https:\/\/.+/.test(SUPABASE_URL) && Boolean(SUPABASE_KEY) && !/^https?:/.test(SUPABASE_KEY);
+export const configured = /^https?:\/\/.+/.test(SUPABASE_URL) && Boolean(SUPABASE_KEY) && !/^https?:/.test(SUPABASE_KEY);
 const isJwtKey = SUPABASE_KEY.startsWith("eyJ");
 
 const ERRORS = {
@@ -20,6 +20,7 @@ const ERRORS = {
   "already registered": "Nalog sa ovim mejlom već postoji. Prijavite se.",
   "Password should be at least": "Šifra mora imati najmanje 8 znakova.",
   "Unable to validate email address": "Mejl adresa nije ispravna.",
+  "Signups not allowed": "Registracija novih naloga je trenutno isključena.",
   "rate limit": "Previše pokušaja. Sačekajte malo pa probajte ponovo.",
   clanarina_istekla: "Članarina je istekla – izmene nisu moguće dok se ne produži. Pogledajte „Članarina“.",
   pauzirano: "Program je trenutno pauziran. Javite se svom stručnjaku.",

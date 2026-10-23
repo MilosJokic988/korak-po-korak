@@ -3,6 +3,8 @@
 import { admin as api, getSession, signIn, signOut, requestPasswordReset, updatePassword, aiStatus } from "./api.js";
 import { PROFILE, ISKUSTVA, applyProfile } from "./config.js";
 import * as pro from "./pro.js";
+import * as lib from "./libview.js";
+import { TEMPLATES, contentFromTemplate, contentFromSelection } from "./library.js";
 import { owner as ownerApi } from "./api.js";
 import { $, esc, toast, openModal, closeModal, fmtDate, todayISO, longToday, relTime, ICON, copyText, formCode, md } from "./util.js";
 import { normalizeContent, currentWeek } from "./program.js";
@@ -19,13 +21,14 @@ export function nav() {
   if (!loggedIn()) return [];
   const items = [
     { page: "list", href: "#/admin", label: "Porodice", short: "Porodice", icon: ICON.people },
+    { page: "library", href: "#/admin/biblioteka", label: "Biblioteka aktivnosti", short: "Biblioteka", icon: ICON.book },
     { page: "profile", href: "#/admin/profil", label: "Moj profil", short: "Profil", icon: ICON.users },
     { page: "billing", href: "#/admin/clanarina", label: "Članarina", short: "Članarina", icon: ICON.calendar },
   ];
   if (pro.isOwner()) items.push({ page: "owner", href: "#/admin/vlasnik", label: "Vlasnik", short: "Vlasnik", icon: ICON.grid });
   return items;
 }
-export const activeNav = route => (["profile", "billing", "owner"].includes(route.view) ? route.view : "list");
+export const activeNav = route => (["profile", "billing", "owner", "library"].includes(route.view) ? route.view : "list");
 
 export const loggedIn = () => {
   const s = getSession();
@@ -45,8 +48,10 @@ export function parse(parts) {
   if (parts[1] === "profil") return { view: "profile" };
   if (parts[1] === "clanarina") return { view: "billing" };
   if (parts[1] === "vlasnik") return { view: "owner" };
+  if (parts[1] === "biblioteka") return { view: "library" };
   if (parts[1] === "p" && parts[2]) {
     if (parts[3] === "novi") return { view: "import", id: parts[2] };
+    if (parts[3] === "biblioteka") return { view: "library", id: parts[2] };
     if (parts[3] === "program" && parts[4]) return { view: "editor", id: parts[2], pid: parts[4] };
     return { view: "family", id: parts[2] };
   }
@@ -54,11 +59,15 @@ export function parse(parts) {
 }
 
 export async function load(route) {
+  const key = route.view + (route.id || "");
+  if (route.view === "library" && A.lastKey !== key) { lib.L.area = "sve"; lib.L.search = ""; if (!route.id) lib.L.pick = []; }
+  A.lastKey = key;
   if (route.view === "password" || route.view === "register") return;
   if (!loggedIn()) { pro.P.me = null; applyProfile(null); return; }
   await pro.loadMe(["profile", "billing", "owner"].includes(route.view));
   if (route.view !== "profile") { pro.P.draftPhoto = null; applyProfile(pro.P.me.profile); }
   if (route.view === "profile" || route.view === "billing") return;
+  if (route.view === "library" && !route.id) return;
   if (route.view === "owner") { await pro.loadOwner(); return; }
   if (route.view === "list") {
     A.overview = await api.overview();
@@ -88,6 +97,7 @@ export function crumb(route) {
   if (route.view === "profile") return "Moj profil";
   if (route.view === "billing") return "Članarina";
   if (route.view === "owner") return "Vlasnik platforme";
+  if (route.view === "library") return "Biblioteka aktivnosti";
   if (route.view === "list" || !A.family) return "Porodice";
   if (route.view === "editor") return "Uređivanje programa";
   if (route.view === "import") return "Novi program";
@@ -101,6 +111,7 @@ export function render(route) {
   if (route.view === "profile") return pro.profileView(!pro.P.me.profile.full_name || A.firstTime);
   if (route.view === "billing") return pro.billingView();
   if (route.view === "owner") return pro.ownerView();
+  if (route.view === "library") return lib.libraryView(route.id && A.family ? A.family.family : null);
   const banner = pro.statusBanner();
   if (route.view === "list") return banner + listView();
   if (route.view === "import") return banner + importView();
@@ -429,7 +440,11 @@ function importView() {
       <input type="file" id="import-file" accept=".json,application/json${ai === false ? "" : ",.docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"}" hidden>
     </label>
     <div class="or-row"><span>ili</span></div>
-    <button class="btn-ghost btn-lg" data-action="new-empty">${ICON.edit} Napravi prazan program i unesi ga ručno</button>
+    <div class="start-options">
+      <a class="start-opt" href="#/admin/p/${f.id}/biblioteka">${ICON.book}<span><strong>Složi iz biblioteke</strong><small>Izaberite aktivnosti među gotovim igrama – program se sam rasporedi po nedeljama.</small></span><span class="arrow">→</span></a>
+      <button class="start-opt" data-action="new-empty">${ICON.edit}<span><strong>Prazan program</strong><small>Unesite sve sami u uređivaču.</small></span><span class="arrow">→</span></button>
+    </div>
+    ${lib.templatesBlock()}
     <div class="panel tips-panel">
       <h3>Dobro je znati</h3>
       <ul class="clean-list">
@@ -500,6 +515,34 @@ export async function onClick(e, t, rerender, ctx) {
     if (t.dataset.copy) { copyText(t.dataset.copy); toast("Kopirano."); return; }
     const f = A.family && A.family.family;
     switch (t.dataset.action) {
+      case "lib-area": lib.L.area = t.dataset.a; return rerender();
+      case "lib-open": return lib.openLibActivity(t.dataset.id, Boolean(A.family && location.hash.includes("/biblioteka") && location.hash.includes("/p/")));
+      case "lib-toggle": {
+        const id = t.dataset.id, i = lib.L.pick.indexOf(id);
+        i >= 0 ? lib.L.pick.splice(i, 1) : lib.L.pick.push(id);
+        if (t.dataset.closeAfter) closeModal();
+        return rerender();
+      }
+      case "lib-clear": lib.L.pick = []; return rerender();
+      case "lib-create": {
+        if (!lib.L.pick.length) return;
+        const content = contentFromSelection(lib.L.pick, f.children || "");
+        const saved = await api.saveProgram({ family_id: f.id, title: content.title, content, source_name: "biblioteka" });
+        lib.L.pick = [];
+        A.family = null; A.familyId = null;
+        toast("Program je napravljen kao nacrt. Proverite ga i objavite.");
+        location.hash = `#/admin/p/${f.id}/program/${saved.id}`;
+        return;
+      }
+      case "use-template": {
+        const tpl = TEMPLATES.find(x => x.id === t.dataset.t);
+        const content = contentFromTemplate(tpl, f.children || "");
+        const saved = await api.saveProgram({ family_id: f.id, title: content.title, content, source_name: "šablon: " + tpl.title });
+        A.family = null; A.familyId = null;
+        toast("Šablon je ubačen kao nacrt. Prilagodite ga i objavite.");
+        location.hash = `#/admin/p/${f.id}/program/${saved.id}`;
+        return;
+      }
       case "remove-photo": pro.P.draftPhoto = ""; applyProfile({ ...pro.P.me.profile, photo: "" }); return rerender();
       case "owner-filter": pro.P.ownerFilter = t.dataset.f; return rerender();
       case "owner-extend": {
@@ -601,6 +644,12 @@ export async function onClick(e, t, rerender, ctx) {
 }
 
 export function onInput(e) {
+  if (e.target.id === "lib-search") {
+    lib.L.search = e.target.value;
+    const g = document.getElementById("lib-grid");
+    if (g) g.innerHTML = lib.cards(location.hash.includes("/p/"));
+    return;
+  }
   const form = e.target.closest && e.target.closest("#profile-form");
   if (form) return pro.onProfileInput(form);
   return editor.onInput(e);
