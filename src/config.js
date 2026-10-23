@@ -1,7 +1,8 @@
 /* Podešavanja aplikacije koja se retko menjaju. */
 
-export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
-export const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// Prihvata i adresu sa "/rest/v1" ili razmakom na kraju (česta greška pri kopiranju).
+export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/+$/, "").replace(/\/(rest|auth)\/v1$/, "").replace(/\/+$/, "");
+export const SUPABASE_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 export const AI_ENDPOINT = import.meta.env.VITE_AI_ENDPOINT || "/api/ai";
 
 /* Profil stručnjaka. Na početku je opšti; posle učitavanja se popunjava
