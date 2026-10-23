@@ -166,6 +166,7 @@ function notConfiguredScreen() {
       <p class="eyebrow">Podešavanje</p>
       <h1>Aplikacija još nije povezana sa bazom.</h1>
       <p class="lead">Dodajte <code>VITE_SUPABASE_URL</code> i <code>VITE_SUPABASE_ANON_KEY</code> (lokalno u fajl <code>.env</code>, a na Vercel-u u Settings → Environment Variables) i ponovo pokrenite aplikaciju. Uputstvo je u fajlu README.md.</p>
+      <p class="lead">Proverite i da vrednosti nisu zamenjene: <code>VITE_SUPABASE_URL</code> počinje sa <code>https://</code> i završava se sa <code>.supabase.co</code>, a <code>VITE_SUPABASE_ANON_KEY</code> počinje sa <code>sb_publishable_</code>.</p>
     </section>`;
 }
 

@@ -1,6 +1,6 @@
 // Omogućava rad bez interneta: sve što je jednom otvoreno čuva se u kešu.
 // Kada ima interneta, uvek se uzima najnovija verzija.
-const CACHE = "kd-v2";
+const CACHE = "kd-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", e => e.waitUntil(
@@ -24,6 +24,6 @@ self.addEventListener("fetch", e => {
         }
         return res;
       })
-      .catch(() => caches.match(req).then(hit => hit || caches.match("/")))
+      .catch(() => caches.match(req).then(hit => hit || (req.mode === "navigate" ? caches.match("/") : null)).then(r => r || Response.error()))
   );
 });

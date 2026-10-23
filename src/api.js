@@ -4,7 +4,7 @@
 import { SUPABASE_URL, SUPABASE_KEY, AI_ENDPOINT } from "./config.js";
 import { store } from "./util.js";
 
-export const configured = Boolean(SUPABASE_URL && SUPABASE_KEY);
+export const configured = /^https:\/\/.+/.test(SUPABASE_URL) && Boolean(SUPABASE_KEY) && !/^https?:/.test(SUPABASE_KEY);
 const isJwtKey = SUPABASE_KEY.startsWith("eyJ");
 
 const ERRORS = {
